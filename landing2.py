@@ -84,12 +84,17 @@ def apply_correction(vessel, dV_lat, dV_lon, thr_pow = 0.5):
         #ap.target_heading = heading
         #ap.target_direction = (0, 0, heading)
         
-    ap.target_direction = (heading, roll_angle, heading)
+    if abs(dV_lon) < 10 or abs(dV_lat) < 10:
+        ap.target_direction = (heading, roll_angle, 0)
+        print("(heading, roll_angle, 0)\n")
+    else:
+        print("(heading, roll_angle, heading)\n")
+        ap.target_direction = (heading, roll_angle, heading)
     start_time = time.time()
     while ap.error > 5:
         if time.time() - start_time > 20:
             ap.target_direction = (0, 0, 0)
-            ap.target_direction = (heading, roll_angle, heading)
+            ap.target_direction = (heading, roll_angle, 0)
         time.sleep(0.5)
     time.sleep(1)
     print("Ориентация достигнута!")
@@ -110,7 +115,7 @@ def apply_correction(vessel, dV_lat, dV_lon, thr_pow = 0.5):
     # Даём импульс
     
     control.throttle = thr_pow
-    time.sleep(max(0.1, min(impulse_time, 5)))  # Ограничиваем 5 сек #(impulse_time)
+    time.sleep(max(0.05, min(impulse_time, 5)))  # Ограничиваем 5 сек #(impulse_time)
     control.throttle = 0
     lat1, lon1, _ = get_angular_velocities(vessel) 
     print(f"Velocitys: lat={lat1:.3f}, lon={lon1:.3f}")
@@ -122,7 +127,7 @@ def apply_correction(vessel, dV_lat, dV_lon, thr_pow = 0.5):
     ap.target_heading = 0
     ap.disengage() """
 
-def check_and_correct(vessel, target_lat, target_lon, max_attempts=10):
+def check_and_correct(vessel, target_lat, target_lon, max_attempts=20):
     """Проверяет точность и корректирует траекторию."""
     for attempt in range(1, max_attempts + 1):
         print(f"\nПопытка коррекции #{attempt}")
@@ -168,16 +173,8 @@ def check_and_correct(vessel, target_lat, target_lon, max_attempts=10):
         dV_lon = calculate_required_dV(dlon, t, vessel.flight().latitude)
         
         # Применяем коррекцию
-        if abs(dlat) < 10 and abs(dlon) < 10:
-            thr_pow = 0.1
-            print(f"Миникоррекция: dV_lat={dV_lat:.1f} м/с, dV_lon={dV_lon:.1f} м/с")
-        elif abs(dlat) < 5 and abs(dlon) < 5:
-            thr_pow = 0.1
-            print(f"Микрокоррекция: dV_lat={dV_lat:.1f} м/с, dV_lon={dV_lon:.1f} м/с")
-        else:
-            thr_pow = 0.5
-            print(f"Коррекция: dV_lat={dV_lat:.1f} м/с, dV_lon={dV_lon:.1f} м/с")
-        apply_correction(vessel, dV_lat, dV_lon, thr_pow)
+        
+        apply_correction(vessel, dV_lat, dV_lon, 0.5)
     
     print("Достигнут лимит попыток.")
     return False
@@ -191,11 +188,11 @@ def main():
     target_lat = -0.096944 #float(input("Введите целевую широту: "))
     target_lon = -74.5575 #float(input("Введите целевую долготу: "))
 
-    target_mis1 = 0.07847152402251774 #погрешность из-за атмосферы и гравитации
-    target_mis2 = -4.45863753530881
+    target_mis1 = 0 #погрешность из-за атмосферы и гравитации
+    target_mis2 = -0.4977200650055238
 
-    target_lat = target_lat - target_mis1
-    target_lon = target_lon - target_mis2
+    target_lat = target_lat + target_mis1
+    target_lon = target_lon + target_mis2
 
     lat1, lon1 = vessel.flight().latitude, vessel.flight().longitude
     dlat = lat1 - target_lat
@@ -216,8 +213,12 @@ def main():
         print(f"Coords: lat={lat1:.3f}, lon={lon1:.3f} , dlat {dlat}, dlon {dlon}")
     print(f"Coords: lat={lat1:.3f}, lon={lon1:.3f} , dlat {dlat}, dlon {dlon}")
     print("\nНачинаем коррекцию траектории...")
+    vessel.control.sas = False
+    time.sleep(1)
+    vessel.control.sas = True
     success = check_and_correct(vessel, target_lat, target_lon)
-    
+    vessel.control.sas = False
+
     if success:
         print("Корабль приземлится в заданной точке!")
     else:
@@ -226,6 +227,9 @@ def main():
     control = vessel.control
     ap.reference_frame = vessel.surface_reference_frame
     ap.engage()
+    vessel.control.sas = False
+    time.sleep(1)
+    vessel.control.sas = True
     ap.target_direction = (0, 0, -1)
     start_time = time.time()
     while ap.error > 5:
@@ -235,9 +239,9 @@ def main():
     print(f"Ориентация для входа в атмосферу и приземления достигнута!")
     while vessel.flight().surface_altitude > 1500:
         ap.target_direction = (0, 0, -1)
-        time.sleep(0.1)
-        print(f"\rВысота {vessel.flight().surface_altitude}")
+        time.sleep(1)
     vessel.control.activate_next_stage()
+    vessel.control.sas = False
     ap.disengage()
     h = vessel.flight().surface_altitude
     time.sleep(5)
